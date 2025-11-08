@@ -228,12 +228,17 @@ export async function POST(request: NextRequest) {
 
     // Merge AI metadata with scraped metadata
     const finalMetadata = {
-      ...(metadata as object),
+      ...(typeof metadata === 'object' && metadata !== null ? metadata : {}),
       ...aiMetadata,
     };
 
     // Auto-detect category if not provided
     const finalCategory = category || detectCategory(contentType, finalTags);
+
+    // Prepare metadata for Prisma (convert to JSON-compatible format)
+    const metadataForDb = Object.keys(finalMetadata).length > 0 
+      ? JSON.parse(JSON.stringify(finalMetadata)) 
+      : undefined;
 
     // Create bookmark first
     const bookmark = await prisma.bookmark.create({
@@ -245,7 +250,7 @@ export async function POST(request: NextRequest) {
         rawContent: rawContent || description || null,
         thumbnail: thumbnail || null,
         favicon: favicon || null,
-        metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : null,
+        metadata: metadataForDb,
         tags: finalTags,
         category: finalCategory,
         extractedAt: url ? new Date() : null,
