@@ -216,7 +216,7 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
 
         {/* Suggestions Dropdown */}
         {showSuggestions && suggestions.length > 0 && (
-          <div className="absolute z-10 w-full mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
             {suggestions.map((suggestion, idx) => (
               <button
                 key={idx}
@@ -224,14 +224,14 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
                   setQuery(suggestion.text);
                   setShowSuggestions(false);
                 }}
-                className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3 border-b border-gray-100 last:border-0"
               >
                 {suggestion.type === 'recent' ? (
                   <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
                 ) : (
                   <Search className="w-4 h-4 text-blue-500 flex-shrink-0" />
                 )}
-                <span className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="text-sm text-gray-700">
                   {suggestion.text}
                 </span>
                 {suggestion.type === 'recent' && (

@@ -85,10 +85,17 @@ Parse the query and return a JSON object with this EXACT structure:
 Rules:
 1. Only include filters that are explicitly mentioned or clearly implied
 2. For date ranges, calculate actual dates based on today being November 8, 2025
-3. Extract and expand keywords with synonyms and related terms
+3. Extract and AGGRESSIVELY expand keywords with synonyms, related terms, and contextual words
 4. semanticQuery should be optimized for semantic search (remove stop words, focus on meaning)
 5. confidence should reflect how well you understood the query (0-1)
-6. Return ONLY valid JSON, no markdown or explanations`;
+6. For educational queries (study, learn, etc.), expand to include: book, tutorial, course, guide, lesson, education, learning
+7. For subject queries (math, physics, etc.), include both singular/plural and common related terms
+8. Return ONLY valid JSON, no markdown or explanations
+
+Examples:
+- Query "study" → expandedKeywords: ["study", "studying", "learn", "learning", "education", "book", "textbook", "tutorial", "course", "lesson", "guide", "academic", "school", "college", "university"]
+- Query "maths" → expandedKeywords: ["maths", "math", "mathematics", "algebra", "calculus", "geometry", "arithmetic", "numerical", "computation"]
+- Query "phone" → expandedKeywords: ["phone", "smartphone", "mobile", "iphone", "android", "cellular", "device", "handset"]`;
 
     const response = await anthropic.messages.create({
       model: 'claude-3-haiku-20240307',
@@ -211,13 +218,59 @@ function basicQueryParse(query: string): ParsedQuery {
   const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'about', 'show', 'me', 'find', 'search', 'my', 'i', 'saved']);
   const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
   
+  // Expand keywords with common synonyms and related terms
+  const keywordExpansions: Record<string, string[]> = {
+    // Educational terms
+    'study': ['study', 'studying', 'learn', 'learning', 'education', 'book', 'textbook', 'tutorial', 'course', 'lesson', 'guide', 'academic'],
+    'learn': ['learn', 'learning', 'study', 'studying', 'education', 'tutorial', 'course', 'lesson', 'guide', 'training'],
+    'education': ['education', 'educational', 'learning', 'study', 'academic', 'school', 'course', 'training'],
+    
+    // Math/Science
+    'math': ['math', 'maths', 'mathematics', 'algebra', 'calculus', 'geometry', 'arithmetic', 'numerical'],
+    'maths': ['maths', 'math', 'mathematics', 'algebra', 'calculus', 'geometry', 'arithmetic', 'numerical'],
+    'mathematics': ['mathematics', 'math', 'maths', 'algebra', 'calculus', 'geometry', 'arithmetic'],
+    'science': ['science', 'scientific', 'physics', 'chemistry', 'biology', 'research', 'experiment'],
+    'physics': ['physics', 'physical', 'science', 'mechanics', 'quantum', 'thermodynamics'],
+    
+    // Tech
+    'code': ['code', 'coding', 'programming', 'development', 'software', 'script'],
+    'programming': ['programming', 'coding', 'code', 'development', 'software', 'dev'],
+    'tech': ['tech', 'technology', 'technical', 'computing', 'digital', 'software', 'hardware'],
+    
+    // Devices
+    'phone': ['phone', 'smartphone', 'mobile', 'iphone', 'android', 'cellular', 'device'],
+    'laptop': ['laptop', 'computer', 'notebook', 'pc', 'macbook', 'device'],
+    'computer': ['computer', 'pc', 'laptop', 'desktop', 'machine', 'device'],
+    
+    // Shopping
+    'buy': ['buy', 'purchase', 'shopping', 'shop', 'order', 'product', 'deal'],
+    'shop': ['shop', 'shopping', 'buy', 'purchase', 'store', 'product', 'deal'],
+    'product': ['product', 'item', 'goods', 'merchandise', 'shopping'],
+    
+    // Content types
+    'video': ['video', 'watch', 'youtube', 'tutorial', 'film', 'movie', 'clip'],
+    'article': ['article', 'post', 'blog', 'read', 'story', 'news', 'writing'],
+    'book': ['book', 'ebook', 'textbook', 'reading', 'literature', 'publication'],
+  };
+  
+  // Expand each keyword
+  const expandedSet = new Set<string>();
+  for (const word of words) {
+    expandedSet.add(word);
+    if (keywordExpansions[word]) {
+      keywordExpansions[word].forEach(exp => expandedSet.add(exp));
+    }
+  }
+  
+  const expandedKeywords = Array.from(expandedSet);
+  
   return {
     originalQuery: query,
     intent: 'find_bookmarks',
     filters,
     keywords: words,
-    expandedKeywords: words,
-    semanticQuery: words.join(' '),
+    expandedKeywords,
+    semanticQuery: expandedKeywords.join(' '),
     contextualHints: [],
     confidence: 0.5,
   };

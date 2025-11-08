@@ -17,10 +17,15 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build"
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "regenerate-tags": "tsx scripts/regenerate-tags.ts",
+    "regenerate-embeddings": "tsx scripts/regenerate-embeddings.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@aws-sdk/client-s3": "^3.927.0",
+    "@aws-sdk/lib-storage": "^3.927.0",
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.80.0",
@@ -33,6 +38,7 @@
     "next": "16.0.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "sharp": "^0.34.5",
     "tailwind-merge": "^3.3.1",
     "zod": "^4.1.12"
   },
@@ -44,12 +50,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.7.1",
     "prisma": "^6.19.0",
     "tailwindcss": "^4",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   }
 }

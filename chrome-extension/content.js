@@ -76,6 +76,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       return true;
     }
+    
+    if (request.action === 'getImageContext') {
+      const imageContext = getImageContext(request.imageUrl);
+      sendResponse(imageContext);
+      return true;
+    }
   } catch (error) {
     console.error('Error in content script:', error);
     sendResponse({ error: error.message });
@@ -83,3 +89,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   return true;
 });
+
+// Extract context around an image
+function getImageContext(imageUrl) {
+  try {
+    // Find the image element
+    const img = document.querySelector(`img[src="${imageUrl}"]`);
+    
+    if (!img) {
+      return {
+        surroundingText: '',
+        altText: '',
+        caption: '',
+      };
+    }
+
+    // Get alt text
+    const altText = img.alt || img.title || '';
+
+    // Try to find caption
+    let caption = '';
+    const figure = img.closest('figure');
+    if (figure) {
+      const figcaption = figure.querySelector('figcaption');
+      if (figcaption) {
+        caption = figcaption.innerText;
+      }
+    }
+
+    // Get surrounding text (from parent container)
+    let surroundingText = '';
+    const parent = img.closest('p, div, article, section, li');
+    if (parent) {
+      // Get text content, but try to get text near the image
+      const allText = parent.innerText || parent.textContent || '';
+      // Limit to 500 characters for context
+      surroundingText = allText.substring(0, 500);
+    }
+
+    // If no surrounding text, try siblings
+    if (!surroundingText && img.parentElement) {
+      const siblings = Array.from(img.parentElement.children);
+      const texts = siblings
+        .filter(el => el !== img && el.innerText)
+        .map(el => el.innerText)
+        .join(' ');
+      surroundingText = texts.substring(0, 500);
+    }
+
+    console.log('Image context extracted:', {
+      altText,
+      caption,
+      surroundingLength: surroundingText.length,
+    });
+
+    return {
+      surroundingText,
+      altText,
+      caption,
+    };
+  } catch (error) {
+    console.error('Failed to get image context:', error);
+    return {
+      surroundingText: '',
+      altText: '',
+      caption: '',
+    };
+  }
+}

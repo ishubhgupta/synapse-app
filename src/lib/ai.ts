@@ -76,7 +76,8 @@ Respond in JSON format:
 }
 
 /**
- * Generate smart tags from title and content
+ * Generate smart tags from title and content using AI
+ * Always called dynamically - no hardcoded tags
  */
 export async function generateSmartTags(
   title: string,
@@ -84,16 +85,31 @@ export async function generateSmartTags(
   url?: string
 ): Promise<string[]> {
   try {
-    const prompt = `Extract 3-5 relevant keywords/tags from this content:
+    const prompt = `Analyze this content and extract 3-5 relevant, specific keywords or tags.
+
+Rules:
+- Tags should be concise (1-2 words max)
+- Focus on main topics, technologies, categories, or key concepts
+- Prioritize specificity over generic terms
+- Use lowercase for consistency
+- Return tags that would help in searching/organizing
+
 Title: ${title}
-Content: ${content.substring(0, 1000)}
+Content: ${content.substring(0, 2000)}
 ${url ? `URL: ${url}` : ''}
 
-Return only a JSON array of tags: ["tag1", "tag2", "tag3"]`;
+Examples of good tags:
+- "javascript", "react", "tutorial"
+- "machine-learning", "python", "ai"
+- "shopping", "electronics", "deals"
+- "recipe", "cooking", "italian"
+
+Return ONLY a JSON array of tags (no explanation):
+["tag1", "tag2", "tag3"]`;
 
     const message = await anthropic.messages.create({
       model: 'claude-3-haiku-20240307',
-      max_tokens: 256,
+      max_tokens: 512,
       messages: [
         {
           role: 'user',
@@ -107,12 +123,21 @@ Return only a JSON array of tags: ["tag1", "tag2", "tag3"]`;
     
     if (jsonMatch) {
       const tags = JSON.parse(jsonMatch[0]);
-      return tags.filter((tag: string) => tag && tag.length > 0);
+      // Clean and validate tags
+      const cleanedTags = tags
+        .filter((tag: string) => tag && tag.length > 0)
+        .map((tag: string) => tag.toLowerCase().trim())
+        .filter((tag: string) => tag.length >= 2 && tag.length <= 30)
+        .slice(0, 5); // Limit to 5 tags
+      
+      console.log(`🏷️ Generated tags: ${cleanedTags.join(', ')}`);
+      return cleanedTags;
     }
 
+    console.warn('⚠️ Could not extract tags from AI response');
     return [];
   } catch (error) {
-    console.error('Tag generation error:', error);
+    console.error('❌ Tag generation error:', error);
     return [];
   }
 }

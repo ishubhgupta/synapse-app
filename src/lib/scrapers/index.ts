@@ -1,6 +1,7 @@
 import { VideoScraper } from './video';
 import { ProductScraper } from './product';
 import { ArticleScraper } from './article';
+import { ImageScraper } from './image';
 import type { Scraper, ScraperResult } from './types';
 
 export class ScraperManager {
@@ -8,6 +9,7 @@ export class ScraperManager {
 
   constructor() {
     this.scrapers = [
+      new ImageScraper(), // Check images first
       new VideoScraper(),
       new ProductScraper(),
       new ArticleScraper(), // Must be last (default)

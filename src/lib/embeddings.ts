@@ -1,39 +1,63 @@
 /**
  * Embedding Generation Utilities
  * 
- * Generates vector embeddings for semantic search using OpenAI's text-embedding-3-small model.
- * Embeddings are 1536-dimensional vectors that capture semantic meaning of text.
+ * Generates vector embeddings for semantic search.
+ * Supports Google Gemini (preferred, free tier) and OpenAI (fallback).
+ * 
+ * Gemini: 768 dimensions, FREE 1500 requests/day
+ * OpenAI: 1536 dimensions, paid only
  */
+
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const EMBEDDING_MODEL_GEMINI = 'text-embedding-004'; // Latest Gemini embedding model
+const EMBEDDING_DIM_GEMINI = 768;
+
+// Lazy initialization of Gemini client (allows env vars to load first)
+let geminiClient: GoogleGenerativeAI | null = null;
+function getGeminiClient(): GoogleGenerativeAI | null {
+  if (geminiClient === null && process.env.GOOGLE_API_KEY) {
+    geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+  }
+  return geminiClient;
+}
 
 /**
- * Generate embedding vector from text using OpenAI API
+ * Generate embedding vector from text using Google Gemini
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  
-  if (!apiKey) {
-    console.warn('⚠️  OpenAI API key not configured, skipping embedding generation');
-    console.warn('   Add OPENAI_API_KEY to .env.local to enable semantic search');
-    return [];
-  }
-
-  if (!text || text.trim().length === 0) {
-    console.warn('⚠️  Empty text provided for embedding generation');
-    return [];
+async function generateEmbeddingWithGemini(text: string): Promise<number[]> {
+  const gemini = getGeminiClient();
+  if (!gemini) {
+    throw new Error('Google API key not configured');
   }
 
   try {
-    // Clean and truncate text to avoid token limits (8191 tokens max)
-    const cleanText = text
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 8000); // Conservative limit to avoid token overflow
+    const model = gemini.getGenerativeModel({ model: EMBEDDING_MODEL_GEMINI });
+    const result = await model.embedContent(text);
+    const embedding = result.embedding;
 
-    if (cleanText.length < 3) {
-      console.warn('⚠️  Text too short for embedding generation');
-      return [];
+    if (!embedding.values || embedding.values.length === 0) {
+      throw new Error('Empty embedding returned from Gemini');
     }
 
+    return Array.from(embedding.values);
+  } catch (error) {
+    console.error('Gemini embedding error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate embedding vector from text using OpenAI (fallback)
+ */
+async function generateEmbeddingWithOpenAI(text: string): Promise<number[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error('OpenAI API key not configured');
+  }
+
+  try {
     const response = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
       headers: {
@@ -41,33 +65,82 @@ export async function generateEmbedding(text: string): Promise<number[]> {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        input: cleanText,
-        model: 'text-embedding-3-small', // 1536 dimensions, $0.02/1M tokens
+        model: 'text-embedding-3-small',
+        input: text,
         encoding_format: 'float',
       }),
     });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      console.error('❌ OpenAI API error:', error);
-      
-      if (response.status === 401) {
-        console.error('   Invalid API key - check your OPENAI_API_KEY in .env.local');
-      } else if (response.status === 429) {
-        console.error('   Rate limit exceeded - too many requests');
-      }
-      
-      return [];
+      throw new Error(`OpenAI API error: ${JSON.stringify(error)}`);
     }
 
     const data = await response.json();
-    const embedding = data.data[0].embedding;
-
-    console.log(`✓ Embedding generated: ${embedding.length} dimensions, ${data.usage.total_tokens} tokens`);
-    
-    return embedding;
+    return data.data[0].embedding;
   } catch (error) {
-    console.error('❌ Failed to generate embedding:', error);
+    console.error('OpenAI embedding error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate embedding vector from text (auto-selects provider)
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  if (!text || text.trim().length === 0) {
+    console.warn('⚠️  Empty text provided for embedding generation');
+    return [];
+  }
+
+  // Clean and truncate text (Gemini limit: ~2048 tokens ≈ 8000 chars)
+  const cleanText = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 8000);
+
+  if (cleanText.length < 3) {
+    console.warn('⚠️  Text too short for embedding generation');
+    return [];
+  }
+
+  try {
+    // Try Gemini first (free tier)
+    const gemini = getGeminiClient();
+    if (gemini) {
+      console.log('🔮 Generating embedding with Google Gemini...');
+      const embedding = await generateEmbeddingWithGemini(cleanText);
+      console.log(`✓ Generated ${embedding.length}-dimensional embedding (Gemini)`);
+      return embedding;
+    }
+
+    // Fallback to OpenAI
+    if (process.env.OPENAI_API_KEY) {
+      console.log('🤖 Generating embedding with OpenAI...');
+      const embedding = await generateEmbeddingWithOpenAI(cleanText);
+      console.log(`✓ Generated ${embedding.length}-dimensional embedding (OpenAI)`);
+      return embedding;
+    }
+
+    // No provider available
+    console.warn('⚠️  No embedding provider configured');
+    console.warn('   Add GOOGLE_API_KEY (free) or OPENAI_API_KEY to .env.local');
+    return [];
+  } catch (error) {
+    console.error('❌ Embedding generation failed:', error);
+    
+    // If Gemini fails, try OpenAI as fallback
+    if (getGeminiClient() && process.env.OPENAI_API_KEY) {
+      console.log('⚠️  Retrying with OpenAI fallback...');
+      try {
+        const embedding = await generateEmbeddingWithOpenAI(cleanText);
+        console.log(`✓ Generated ${embedding.length}-dimensional embedding (OpenAI fallback)`);
+        return embedding;
+      } catch (fallbackError) {
+        console.error('❌ OpenAI fallback also failed:', fallbackError);
+      }
+    }
+
     return [];
   }
 }
@@ -113,6 +186,23 @@ export async function generateBookmarkEmbedding(
   const combinedText = parts.join(' ');
   
   return generateEmbedding(combinedText);
+}
+
+/**
+ * Get embedding dimensions for current provider
+ */
+export function getEmbeddingDimensions(): number {
+  if (getGeminiClient()) return EMBEDDING_DIM_GEMINI; // 768
+  return 1536; // OpenAI default
+}
+
+/**
+ * Get current embedding provider name
+ */
+export function getEmbeddingProvider(): string {
+  if (getGeminiClient()) return 'Google Gemini (FREE)';
+  if (process.env.OPENAI_API_KEY) return 'OpenAI';
+  return 'None (semantic search disabled)';
 }
 
 /**

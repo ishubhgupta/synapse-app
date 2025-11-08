@@ -37,9 +37,32 @@ export async function GET(request: NextRequest) {
         .split(/\s+/)
         .filter(word => word.length > 2 && !stopWords.includes(word));
 
+      // Expand keywords with synonyms and related terms for better matching
+      const keywordExpansions: Record<string, string[]> = {
+        'study': ['study', 'learn', 'education', 'book', 'textbook', 'tutorial', 'course', 'lesson', 'academic'],
+        'learn': ['learn', 'study', 'education', 'tutorial', 'course', 'lesson', 'training'],
+        'math': ['math', 'maths', 'mathematics', 'algebra', 'calculus', 'geometry'],
+        'maths': ['maths', 'math', 'mathematics', 'algebra', 'calculus', 'geometry'],
+        'code': ['code', 'coding', 'programming', 'development', 'software'],
+        'phone': ['phone', 'smartphone', 'mobile', 'iphone', 'android'],
+        'video': ['video', 'watch', 'youtube', 'tutorial'],
+        'book': ['book', 'ebook', 'textbook', 'reading'],
+      };
+
+      // Expand keywords
+      const expandedKeywords = new Set<string>();
+      for (const keyword of keywords) {
+        expandedKeywords.add(keyword);
+        if (keywordExpansions[keyword]) {
+          keywordExpansions[keyword].forEach(exp => expandedKeywords.add(exp));
+        }
+      }
+      
+      const allKeywords = Array.from(expandedKeywords);
+
       // If we extracted keywords, search for each one
-      if (keywords.length > 0) {
-        const searchConditions = keywords.map(keyword => ({
+      if (allKeywords.length > 0) {
+        const searchConditions = allKeywords.map(keyword => ({
           OR: [
             { title: { contains: keyword, mode: 'insensitive' as const } },
             { rawContent: { contains: keyword, mode: 'insensitive' as const } },

@@ -42,6 +42,19 @@ model Bookmark {
   thumbnail String?
   favicon   String?
 
+  // Image-specific fields
+  imageUrl         String? // S3 URL for stored images
+  imageStorageKey  String? // S3 storage key for deletion
+  imageWidth       Int?    // Image dimensions
+  imageHeight      Int?
+  imageSize        Int?    // Size in bytes
+  imageFormat      String? // jpg, png, webp, etc.
+  
+  // AI Image Analysis
+  ocrText          String? @db.Text // Extracted text from image (OCR)
+  imageDescription String? @db.Text // AI-generated description
+  imageObjects     String[]         // Detected objects/concepts
+
   // Metadata (flexible JSON for type-specific data)
   metadata Json?
 
@@ -49,8 +62,8 @@ model Bookmark {
   tags     String[]
   category String? // 'work' | 'personal' | 'research' | 'inspiration' | 'shopping' | 'entertainment' | 'learning'
 
-  // Vector embedding for semantic search (1536 dimensions for OpenAI ada-002)
-  embedding Unsupported("vector(1536)")?
+  // Vector embedding for semantic search (768 dimensions for Google Gemini)
+  embedding Unsupported("vector(768)")?
 
   // Timestamps
   createdAt   DateTime  @default(now())

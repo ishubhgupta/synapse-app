@@ -171,18 +171,31 @@ export async function POST(request: NextRequest) {
       try {
         const contentToAnalyze = rawContent || description || title;
         
-        // Generate smart tags if none provided
-        if (finalTags.length === 0 && contentToAnalyze) {
+        // ALWAYS generate smart tags using AI (dynamic tag generation)
+        if (contentToAnalyze) {
+          console.log('🤖 Generating AI-powered tags...');
           const smartTags = await generateSmartTags(
             extractedTitle,
             contentToAnalyze,
             url ?? undefined
           );
-          finalTags = smartTags.slice(0, 5);
+          
+          // Merge user-provided tags with AI-generated tags (AI tags take priority)
+          if (finalTags.length > 0) {
+            // User provided some tags, merge them with AI suggestions
+            const allTags = [...new Set([...smartTags, ...finalTags])];
+            finalTags = allTags.slice(0, 8);
+            console.log(`✨ Combined ${smartTags.length} AI tags with ${tags?.length || 0} user tags`);
+          } else {
+            // No user tags, use AI tags only
+            finalTags = smartTags.slice(0, 5);
+            console.log(`✨ Generated ${finalTags.length} AI tags`);
+          }
         }
 
         // Analyze content for summary and key points
         if (contentToAnalyze.length > 100) {
+          console.log('📝 Analyzing content with AI...');
           const aiAnalysis = await analyzeContentWithAI(
             contentToAnalyze,
             contentType,
@@ -191,20 +204,26 @@ export async function POST(request: NextRequest) {
 
           if (aiAnalysis.summary) {
             aiMetadata.aiSummary = aiAnalysis.summary;
+            console.log('✓ Generated AI summary');
           }
           if (aiAnalysis.keyPoints && aiAnalysis.keyPoints.length > 0) {
             aiMetadata.keyPoints = aiAnalysis.keyPoints;
+            console.log(`✓ Generated ${aiAnalysis.keyPoints.length} key points`);
           }
           if (aiAnalysis.suggestedTags && aiAnalysis.suggestedTags.length > 0) {
-            // Merge AI suggested tags with existing
+            // Merge additional AI suggested tags from content analysis
             const allTags = [...new Set([...finalTags, ...aiAnalysis.suggestedTags])];
             finalTags = allTags.slice(0, 8);
+            console.log(`✓ Added ${aiAnalysis.suggestedTags.length} more tags from content analysis`);
           }
         }
       } catch (aiError) {
-        console.error('AI analysis failed:', aiError);
-        // Continue without AI enhancement
+        console.error('❌ AI analysis failed:', aiError);
+        // Continue without AI enhancement - use user-provided tags or empty array
+        console.log('⚠️ Continuing without AI tags');
       }
+    } else {
+      console.warn('⚠️ ANTHROPIC_API_KEY not set - skipping AI tag generation');
     }
 
     // Merge AI metadata with scraped metadata

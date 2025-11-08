@@ -31,6 +31,12 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Save image to Synapse',
     contexts: ['image'],
   });
+
+  chrome.contextMenus.create({
+    id: 'save-image-with-context',
+    title: 'Save image with context to Synapse',
+    contexts: ['image'],
+  });
 });
 
 // Handle context menu clicks
@@ -60,6 +66,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         break;
       case 'save-image':
         saveImage(info.srcUrl, tab).catch(err => showNotification('Failed', err.message, 'error'));
+        break;
+      case 'save-image-with-context':
+        saveImageWithContext(info.srcUrl, tab).catch(err => showNotification('Failed', err.message, 'error'));
         break;
     }
   } catch (error) {
@@ -315,6 +324,59 @@ async function saveImage(url, tab) {
   };
 
   await saveBookmark(bookmark);
+}
+
+async function saveImageWithContext(imageUrl, tab) {
+  if (!imageUrl || !tab) return;
+
+  try {
+    // Get image context from content script
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      action: 'getImageContext',
+      imageUrl: imageUrl,
+    });
+
+    // Prepare image bookmark data
+    const imageData = {
+      imageUrl: imageUrl,
+      pageUrl: tab.url,
+      pageTitle: tab.title,
+      surroundingText: response?.surroundingText || '',
+      altText: response?.altText || '',
+    };
+
+    // Get auth token
+    const result = await chrome.storage.local.get(['authToken']);
+    const token = result.authToken;
+
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    console.log('📸 Saving image with context:', imageData);
+
+    // Call the image API endpoint
+    const apiResponse = await fetch(`${API_BASE_URL}/api/bookmarks/image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(imageData),
+    });
+
+    if (!apiResponse.ok) {
+      const error = await apiResponse.json();
+      throw new Error(error.error || 'Failed to save image');
+    }
+
+    const data = await apiResponse.json();
+    console.log('✅ Image saved with AI analysis:', data);
+    showNotification('Image Saved!', 'Analyzing with AI... 🤖✨', 'success');
+  } catch (error) {
+    console.error('Failed to save image:', error);
+    showNotification('Failed', error.message || 'Could not save image', 'error');
+  }
 }
 
 async function saveBookmark(bookmark) {

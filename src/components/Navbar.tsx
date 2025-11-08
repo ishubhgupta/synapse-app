@@ -40,7 +40,7 @@ export function Navbar({ userEmail }: NavbarProps) {
 
           <div className="flex items-center gap-3">
             <a
-              href="https://chrome.google.com/webstore"
+              href="https://github.com/ishubhgupta/synapse-app/tree/master/chrome-extension"
               target="_blank"
               rel="noopener noreferrer"
               className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2 text-sm font-medium text-white hover:from-blue-600 hover:to-indigo-700 transition-all shadow-sm hover:shadow-md"
