@@ -5,6 +5,7 @@ import { Bookmark } from '@/types/bookmark';
 import { BookmarkForm } from '@/components/BookmarkForm';
 import { BookmarkGrid } from '@/components/BookmarkGrid';
 import { Navbar } from '@/components/Navbar';
+import SmartSearch from '@/components/SmartSearch';
 import { Filter, LayoutGrid, List } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -62,10 +63,6 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, selectedCategory, selectedType]);
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-  };
-
   const handleCategoryFilter = (category: string) => {
     setSelectedCategory(category);
   };
@@ -102,42 +99,23 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Smart Search */}
+        <div className="mb-6">
+          <SmartSearch 
+            onResults={(results) => {
+              setBookmarks(results as Bookmark[]);
+              setLoading(false);
+            }}
+            onClear={() => {
+              fetchBookmarks();
+            }}
+          />
+        </div>
+
         {/* Search and Controls */}
         <div className="mb-6 space-y-4">
-          {/* Search Bar with Actions */}
-          <div className="flex gap-3">
-            <div className="relative flex-1">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                placeholder="Search bookmarks by title, content, tags, or URL..."
-                className="w-full rounded-xl border-0 bg-white px-5 py-3.5 pl-12 shadow-sm ring-1 ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 transition-all"
-              />
-              <svg
-                className="absolute left-4 top-4 h-5 w-5 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
+          {/* Controls Row */}
+          <div className="flex gap-3 justify-end">
 
             {/* Filter Toggle */}
             <button

@@ -12,6 +12,7 @@ import { detectContentType } from '@/lib/contentDetector';
 import { scraperManager } from '@/lib/scrapers';
 import { getFaviconUrl } from '@/lib/utils';
 import { analyzeContentWithAI, generateSmartTags } from '@/lib/ai';
+import { generateBookmarkEmbedding } from '@/lib/embeddings';
 
 // Helper to auto-detect category based on content type and tags
 function detectCategory(contentType: string, tags: string[]): string | null {
@@ -215,7 +216,7 @@ export async function POST(request: NextRequest) {
     // Auto-detect category if not provided
     const finalCategory = category || detectCategory(contentType, finalTags);
 
-    // Create bookmark
+    // Create bookmark first
     const bookmark = await prisma.bookmark.create({
       data: {
         userId: user.userId,
@@ -231,6 +232,42 @@ export async function POST(request: NextRequest) {
         extractedAt: url ? new Date() : null,
       },
     });
+
+    console.log(`✅ Bookmark created: ${bookmark.id}`);
+
+    // Generate and save embedding in background (don't block the response)
+    // This happens asynchronously so the user gets a fast response
+    (async () => {
+      try {
+        console.log(`🔄 Generating embedding for bookmark: ${bookmark.id}`);
+        
+        const embedding = await generateBookmarkEmbedding(
+          extractedTitle,
+          rawContent || description || null,
+          finalTags,
+          url || null
+        );
+
+        if (embedding.length === 0) {
+          console.warn(`⚠️  Empty embedding returned for bookmark: ${bookmark.id}`);
+          return;
+        }
+
+        console.log(`✓ Generated ${embedding.length}-dimensional embedding`);
+
+        // Save embedding using raw SQL
+        await prisma.$executeRaw`
+          UPDATE bookmarks 
+          SET embedding = ${`[${embedding.join(',')}]`}::vector 
+          WHERE id = ${bookmark.id}
+        `;
+
+        console.log(`✅ Embedding saved successfully for: ${bookmark.title}`);
+      } catch (embError) {
+        console.error(`❌ Failed to generate/save embedding for ${bookmark.id}:`, embError);
+        // Don't throw - bookmark is already created
+      }
+    })();
 
     return successResponse(bookmark, 201);
   } catch (error) {

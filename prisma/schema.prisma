@@ -9,6 +9,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Enable pgvector extension
+// Run this SQL in your Neon database:
+// CREATE EXTENSION IF NOT EXISTS vector;
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -44,6 +48,9 @@ model Bookmark {
   // Organization
   tags     String[]
   category String? // 'work' | 'personal' | 'research' | 'inspiration' | 'shopping' | 'entertainment' | 'learning'
+
+  // Vector embedding for semantic search (1536 dimensions for OpenAI ada-002)
+  embedding Unsupported("vector(1536)")?
 
   // Timestamps
   createdAt   DateTime  @default(now())
