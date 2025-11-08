@@ -1,11 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, Loader2, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, Loader2, X, Clock } from 'lucide-react';
 
 interface SmartSearchProps {
   onResults: (results: unknown[]) => void;
   onClear: () => void;
+}
+
+interface Suggestion {
+  text: string;
+  type: 'recent' | 'suggestion';
 }
 
 export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
@@ -13,6 +18,76 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [lastSearch, setLastSearch] = useState('');
   const [error, setError] = useState('');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load recent searches from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('recentSearches');
+    if (saved) {
+      setRecentSearches(JSON.parse(saved));
+    }
+  }, []);
+
+  // Generate suggestions based on query
+  useEffect(() => {
+    if (!query.trim()) {
+      // Show recent searches when input is empty
+      const recentSuggestions: Suggestion[] = recentSearches.slice(0, 5).map(text => ({
+        text,
+        type: 'recent' as const,
+      }));
+      setSuggestions(recentSuggestions);
+      return;
+    }
+
+    // Common search patterns and suggestions
+    const commonPatterns: Suggestion[] = [
+      { text: `${query} articles`, type: 'suggestion' },
+      { text: `${query} videos`, type: 'suggestion' },
+      { text: `${query} from last month`, type: 'suggestion' },
+      { text: `${query} tutorials`, type: 'suggestion' },
+    ];
+
+    // Filter to only relevant suggestions
+    const filtered = commonPatterns.filter(s => 
+      !s.text.toLowerCase().includes('from last month') || query.length > 2
+    );
+
+    setSuggestions(filtered.slice(0, 4));
+  }, [query, recentSearches]);
+
+  // Real-time search as user types
+  useEffect(() => {
+    if (!query.trim()) {
+      return;
+    }
+
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Debounce search - wait 800ms after user stops typing (longer for smoother typing)
+    searchTimeoutRef.current = setTimeout(() => {
+      handleSearch();
+    }, 800);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const saveToRecentSearches = (searchQuery: string) => {
+    const updated = [searchQuery, ...recentSearches.filter(s => s !== searchQuery)].slice(0, 10);
+    setRecentSearches(updated);
+    localStorage.setItem('recentSearches', JSON.stringify(updated));
+  };
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -23,6 +98,12 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
     setIsSearching(true);
     setError('');
     setLastSearch(query);
+    setShowSuggestions(false);
+    
+    // Save to recent searches
+    if (query.trim()) {
+      saveToRecentSearches(query.trim());
+    }
 
     try {
       // Try smart search first (if available)
@@ -85,14 +166,22 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
       {/* Search Input */}
       <div className="relative">
         <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              // Clear timeout on change to prevent search while typing
+              if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+              }
+            }}
             onKeyPress={handleKeyPress}
-            placeholder="Search bookmarks by title, content, tags, or URL..."
-            className="w-full pl-12 pr-24 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+            placeholder="Search bookmarks... Try: 'phone I was looking for' or 'articles about AI'"
+            className="w-full pl-12 pr-24 py-3.5 bg-white text-gray-900 placeholder-gray-500 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition-all"
             disabled={isSearching}
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2">
@@ -125,6 +214,34 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
           </div>
         </div>
 
+        {/* Suggestions Dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute z-10 w-full mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+            {suggestions.map((suggestion, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  setQuery(suggestion.text);
+                  setShowSuggestions(false);
+                }}
+                className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 border-b border-gray-100 dark:border-gray-700 last:border-0"
+              >
+                {suggestion.type === 'recent' ? (
+                  <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                ) : (
+                  <Search className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                )}
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  {suggestion.text}
+                </span>
+                {suggestion.type === 'recent' && (
+                  <span className="ml-auto text-xs text-gray-400">Recent</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Error Message */}
         {error && (
           <div className="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
@@ -135,9 +252,9 @@ export default function SmartSearch({ onResults, onClear }: SmartSearchProps) {
         )}
 
         {/* Last Search Indicator */}
-        {lastSearch && !isSearching && (
-          <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Showing results for: <span className="font-medium">&quot;{lastSearch}&quot;</span>
+        {lastSearch && !isSearching && !showSuggestions && (
+          <div className="mt-2 text-sm text-gray-500">
+            Showing results for: <span className="font-medium text-gray-700">&quot;{lastSearch}&quot;</span>
           </div>
         )}
       </div>
