@@ -13,12 +13,49 @@ import { scraperManager } from '@/lib/scrapers';
 import { getFaviconUrl } from '@/lib/utils';
 import { analyzeContentWithAI, generateSmartTags } from '@/lib/ai';
 
+// Helper to auto-detect category based on content type and tags
+function detectCategory(contentType: string, tags: string[]): string | null {
+  const tagLower = tags.map(t => t.toLowerCase());
+  
+  if (contentType === 'product' || tagLower.some(t => ['shop', 'buy', 'product', 'shopping'].includes(t))) {
+    return 'shopping';
+  }
+  if (contentType === 'video' || tagLower.some(t => ['entertainment', 'movie', 'music', 'game'].includes(t))) {
+    return 'entertainment';
+  }
+  if (tagLower.some(t => ['work', 'business', 'productivity', 'career'].includes(t))) {
+    return 'work';
+  }
+  if (tagLower.some(t => ['learn', 'education', 'tutorial', 'course', 'study'].includes(t))) {
+    return 'learning';
+  }
+  if (tagLower.some(t => ['research', 'academic', 'paper', 'science'].includes(t))) {
+    return 'research';
+  }
+  if (tagLower.some(t => ['design', 'art', 'creative', 'inspiration'].includes(t))) {
+    return 'inspiration';
+  }
+  
+  return 'personal'; // Default
+}
+
 // Validation schema for creating a bookmark
 const createBookmarkSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500, 'Title too long'),
-  url: z.string().url('Invalid URL').optional().or(z.literal('')),
-  rawContent: z.string().optional(),
+  url: z.string().optional().nullable().transform(val => {
+    // Handle null, undefined, or empty string
+    if (!val || val === '' || val === null) return null;
+    // Validate URL format
+    try {
+      new URL(val);
+      return val;
+    } catch {
+      throw new Error('Invalid URL format');
+    }
+  }),
+  rawContent: z.string().optional().nullable(),
   tags: z.array(z.string()).optional().default([]),
+  category: z.enum(['work', 'personal', 'research', 'inspiration', 'shopping', 'entertainment', 'learning']).optional(),
 });
 
 /**
@@ -26,7 +63,7 @@ const createBookmarkSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return unauthorizedError();
     }
@@ -78,16 +115,19 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return unauthorizedError();
     }
 
     // Parse and validate request body
     const body = await request.json();
+    console.log('Received bookmark data:', JSON.stringify(body, null, 2));
+    
     const validation = createBookmarkSchema.safeParse(body);
 
     if (!validation.success) {
+      console.error('Validation failed:', validation.error);
       const firstError = validation.error.issues[0];
       return validationError(
         firstError.message,
@@ -95,7 +135,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, url, rawContent, tags } = validation.data;
+    const { title, url, rawContent, tags, category } = validation.data;
 
     // Detect content type
     const contentType = url ? detectContentType(url) : 'note';
@@ -107,7 +147,7 @@ export async function POST(request: NextRequest) {
     let extractedTitle = title;
     let description: string | undefined;
 
-    if (url && url !== '') {
+    if (url && url !== '' && url !== null) {
       try {
         const scrapedData = await scraperManager.scrape(url);
         extractedTitle = scrapedData.title || title;
@@ -135,7 +175,7 @@ export async function POST(request: NextRequest) {
           const smartTags = await generateSmartTags(
             extractedTitle,
             contentToAnalyze,
-            url
+            url ?? undefined
           );
           finalTags = smartTags.slice(0, 5);
         }
@@ -145,7 +185,7 @@ export async function POST(request: NextRequest) {
           const aiAnalysis = await analyzeContentWithAI(
             contentToAnalyze,
             contentType,
-            url
+            url ?? undefined
           );
 
           if (aiAnalysis.summary) {
@@ -172,6 +212,9 @@ export async function POST(request: NextRequest) {
       ...aiMetadata,
     };
 
+    // Auto-detect category if not provided
+    const finalCategory = category || detectCategory(contentType, finalTags);
+
     // Create bookmark
     const bookmark = await prisma.bookmark.create({
       data: {
@@ -184,6 +227,7 @@ export async function POST(request: NextRequest) {
         favicon: favicon || null,
         metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : null,
         tags: finalTags,
+        category: finalCategory,
         extractedAt: url ? new Date() : null,
       },
     });

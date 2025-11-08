@@ -51,16 +51,22 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
 }
 
 /**
- * Get the current user from the request cookies
+ * Get the current user from the request cookies or Authorization header
  */
 export async function getCurrentUser(request?: NextRequest): Promise<JWTPayload | null> {
   let token: string | undefined;
 
   if (request) {
-    // Server component or middleware
-    token = request.cookies.get('auth-token')?.value;
+    // First, check for Authorization header (for extension)
+    const authHeader = request.headers.get('authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else {
+      // Fall back to cookie (for web app)
+      token = request.cookies.get('auth-token')?.value;
+    }
   } else {
-    // API route
+    // API route without request (use cookies)
     const cookieStore = await cookies();
     token = cookieStore.get('auth-token')?.value;
   }

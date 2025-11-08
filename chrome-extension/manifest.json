@@ -31,12 +31,12 @@
     "128": "icons/icon128.png"
   },
   "commands": {
-    "_execute_action": {
+    "save-bookmark": {
       "suggested_key": {
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "Save current page to Synapse"
+      "description": "Save current page with context"
     },
     "save-selection": {
       "suggested_key": {
@@ -44,6 +44,13 @@
         "mac": "Command+Shift+X"
       },
       "description": "Save selected text as note"
+    },
+    "save-clipboard": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+V",
+        "mac": "Command+Shift+V"
+      },
+      "description": "Save clipboard content as bookmark"
     }
   },
   "content_scripts": [

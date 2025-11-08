@@ -32,20 +32,23 @@ loginForm.addEventListener('submit', async (e) => {
   setLoading(true);
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    const response = await fetch(`${API_BASE_URL}/api/auth/extension/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include', // Important: receive cookies
       body: JSON.stringify({ email, password }),
     });
 
     const data = await response.json();
 
     if (response.ok) {
-      // Store authentication status
-      await chrome.storage.local.set({ authenticated: true });
+      // Store authentication token for extension
+      await chrome.storage.local.set({ 
+        authToken: data.token,
+        user: data.user,
+        authenticated: true 
+      });
       
       showMessage('success', 'Login successful! Redirecting...');
       

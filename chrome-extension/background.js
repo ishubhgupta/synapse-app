@@ -43,19 +43,23 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     return;
   }
 
+  // Show instant notification
+  showNotification('Saving...', 'Adding to Synapse', 'info');
+  
+  // Save in background
   try {
     switch (info.menuItemId) {
       case 'save-page':
-        await saveCurrentPage(tab);
+        saveCurrentPage(tab).catch(err => showNotification('Failed', err.message, 'error'));
         break;
       case 'save-selection':
-        await saveSelection(info.selectionText, tab);
+        saveSelection(info.selectionText, tab).catch(err => showNotification('Failed', err.message, 'error'));
         break;
       case 'save-link':
-        await saveLink(info.linkUrl, tab);
+        saveLink(info.linkUrl, tab).catch(err => showNotification('Failed', err.message, 'error'));
         break;
       case 'save-image':
-        await saveImage(info.srcUrl, tab);
+        saveImage(info.srcUrl, tab).catch(err => showNotification('Failed', err.message, 'error'));
         break;
     }
   } catch (error) {
@@ -66,7 +70,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // Handle keyboard commands
 chrome.commands.onCommand.addListener(async (command) => {
+  console.log('Command received:', command);
+  
   const isAuthenticated = await checkAuth();
+  console.log('Is authenticated:', isAuthenticated);
 
   if (!isAuthenticated) {
     showNotification('Authentication Required', 'Please log in to Synapse first', 'error');
@@ -76,16 +83,47 @@ chrome.commands.onCommand.addListener(async (command) => {
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = tabs[0];
+    console.log('Active tab:', tab.url);
 
     if (command === 'save-bookmark') {
-      await saveCurrentPage(tab);
+      console.log('Saving current page...');
+      // Show instant notification FIRST
+      showNotification('Saving...', 'Adding bookmark to Synapse', 'info');
+      console.log('Notification should be shown now');
+      // Save in background
+      saveCurrentPage(tab).catch(error => {
+        console.error('Failed to save:', error);
+        showNotification('Failed', error.message || 'Could not save bookmark', 'error');
+      });
     } else if (command === 'save-selection') {
-      // Get selected text from content script
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getSelection' });
-      if (response && response.text) {
-        await saveSelection(response.text, tab);
-      } else {
-        showNotification('No Selection', 'Please select some text first', 'error');
+      // Get selected text with context from content script
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'getSelection' });
+        if (response && response.text) {
+          showNotification('Saving Selection...', 'Adding to Synapse', 'info');
+          saveSelectionWithContext(response.text, response.context, tab).catch(error => {
+            showNotification('Failed', error.message || 'Could not save selection', 'error');
+          });
+        } else {
+          showNotification('No Selection', 'Please select some text first', 'error');
+        }
+      } catch (error) {
+        showNotification('Error', 'Could not access page content', 'error');
+      }
+    } else if (command === 'save-clipboard') {
+      // Read clipboard and save
+      try {
+        const clipboardText = await navigator.clipboard.readText();
+        if (clipboardText) {
+          showNotification('Saving Clipboard...', 'Adding to Synapse', 'info');
+          saveClipboardContent(clipboardText, tab).catch(error => {
+            showNotification('Failed', error.message || 'Could not save clipboard', 'error');
+          });
+        } else {
+          showNotification('Empty Clipboard', 'Clipboard is empty', 'error');
+        }
+      } catch (clipError) {
+        showNotification('Error', 'Cannot read clipboard', 'error');
       }
     }
   } catch (error) {
@@ -167,17 +205,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function checkAuth() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-      credentials: 'include',
-    });
-    
-    if (response.ok) {
-      await chrome.storage.local.set({ authenticated: true });
-      return true;
-    } else {
-      await chrome.storage.local.remove('authenticated');
+    const result = await chrome.storage.local.get(['authToken']);
+    if (!result.authToken) {
       return false;
     }
+    return true;
   } catch (error) {
     console.error('Auth check failed:', error);
     return false;
@@ -195,22 +227,29 @@ async function saveCurrentPage(tab) {
     return;
   }
 
-  // Try to get page content from content script
+  // Try to get page content from content script (optional)
   let pageContent = null;
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPageContent' });
     if (response && response.content) {
       pageContent = response.content;
+      console.log('Got page content, length:', pageContent.length);
     }
   } catch (error) {
-    console.log('Could not get page content:', error);
+    // Content script not available on this page (extension pages, some restricted sites)
+    // This is normal and OK - we'll just save without page content
+    console.log('No content script on this page (this is OK)');
   }
 
   const bookmark = {
     title: tab.title || 'Untitled',
-    url: tab.url,
-    rawContent: pageContent,
+    url: tab.url, // Keep the URL as is
   };
+
+  // Only add rawContent if we have it
+  if (pageContent) {
+    bookmark.rawContent = pageContent;
+  }
 
   await saveBookmark(bookmark);
 }
@@ -221,10 +260,43 @@ async function saveSelection(text, tab) {
   const bookmark = {
     title: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
     rawContent: text,
-    url: tab?.url,
+    url: tab?.url || '', // Empty string instead of null
   };
 
   await saveBookmark(bookmark);
+}
+
+async function saveSelectionWithContext(text, context, tab) {
+  if (!text) return;
+
+  const bookmark = {
+    title: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+    rawContent: text,
+    url: tab?.url || context?.url || '', // Empty string instead of null
+  };
+
+  // Add surrounding context to raw content for better AI analysis
+  if (context?.surroundingText) {
+    bookmark.rawContent = `Selection: ${text}\n\nContext: ${context.surroundingText}`;
+  }
+
+  await saveBookmark(bookmark);
+}
+
+async function saveClipboardContent(text, tab) {
+  if (!text) return;
+
+  // Check if it's a URL
+  const isUrl = /^https?:\/\//i.test(text.trim());
+
+  const bookmark = {
+    title: isUrl ? text : text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+    url: isUrl ? text : (tab?.url || ''), // Empty string instead of null
+    rawContent: isUrl ? undefined : text, // Use undefined instead of null
+  };
+
+  await saveBookmark(bookmark);
+  showNotification('Saved from Clipboard!', 'Content saved successfully ✨', 'success');
 }
 
 async function saveLink(url, tab) {
@@ -246,32 +318,95 @@ async function saveImage(url, tab) {
 }
 
 async function saveBookmark(bookmark) {
+  console.log('saveBookmark called with:', bookmark);
+  
+  // Get auth token
+  const result = await chrome.storage.local.get(['authToken']);
+  const token = result.authToken;
+
+  if (!token) {
+    console.error('No auth token found');
+    throw new Error('Not authenticated');
+  }
+
+  console.log('Sending bookmark to API...');
   const response = await fetch(`${API_BASE_URL}/api/bookmarks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
-    credentials: 'include', // Send cookies
     body: JSON.stringify(bookmark),
   });
 
   if (!response.ok) {
     const error = await response.json();
+    console.error('API error:', error);
     throw new Error(error.error || 'Failed to save bookmark');
   }
 
+  console.log('Bookmark saved successfully, showing notification...');
   showNotification('Saved!', 'Bookmark saved successfully ✨', 'success');
   return await response.json();
 }
 
 function showNotification(title, message, type = 'info') {
-  const iconPath = type === 'success' ? 'icons/icon48.png' : 'icons/icon48.png';
+  console.log('🔔 showNotification called:', { title, message, type });
+  
+  // TEMPORARY: Show badge as visual feedback
+  chrome.action.setBadgeText({ text: '✓' });
+  chrome.action.setBadgeBackgroundColor({ color: type === 'error' ? '#ef4444' : '#22c55e' });
+  setTimeout(() => {
+    chrome.action.setBadgeText({ text: '' });
+  }, 2000);
+  
+  // Use chrome.runtime.getURL for proper icon path
+  const iconPath = chrome.runtime.getURL('icons/icon48.png');
+  
+  // Use different notification IDs to allow multiple notifications
+  const notificationId = `synapse-${type}-${Date.now()}`;
 
-  chrome.notifications.create({
+  const options = {
     type: 'basic',
     iconUrl: iconPath,
-    title: title,
+    title: `🧠 Synapse - ${title}`,
     message: message,
-    priority: 2,
+    priority: 2, // Always high priority
+    requireInteraction: false, // Don't require interaction
+    silent: false // Make sound
+  };
+
+  console.log('Creating Chrome notification with options:', options);
+
+  chrome.notifications.create(notificationId, options, (id) => {
+    if (chrome.runtime.lastError) {
+      console.error('❌ Notification error:', chrome.runtime.lastError);
+      // Fallback: Try without icon
+      console.log('Retrying without icon...');
+      chrome.notifications.create(`${notificationId}-retry`, {
+        type: 'basic',
+        iconUrl: '',
+        title: title,
+        message: message,
+        priority: 2
+      }, (retryId) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Retry failed:', chrome.runtime.lastError);
+        } else {
+          console.log('✅ Notification created (no icon):', retryId);
+        }
+      });
+      return;
+    }
+    console.log('✅ Notification created successfully with ID:', id);
+    
+    // Auto-clear success/info notifications after 5 seconds
+    if (type !== 'error') {
+      setTimeout(() => {
+        chrome.notifications.clear(id, (wasCleared) => {
+          console.log('Notification cleared:', id, wasCleared);
+        });
+      }, 5000);
+    }
   });
 }

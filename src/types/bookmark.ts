@@ -2,6 +2,8 @@
 
 export type ContentType = 'video' | 'product' | 'article' | 'tweet' | 'note' | 'image';
 
+export type Category = 'work' | 'personal' | 'research' | 'inspiration' | 'shopping' | 'entertainment' | 'learning';
+
 export interface Bookmark {
   id: string;
   userId: string;
@@ -13,6 +15,7 @@ export interface Bookmark {
   favicon?: string | null;
   metadata?: BookmarkMetadata | null;
   tags: string[];
+  category?: Category | null;
   createdAt: Date;
   updatedAt: Date;
   extractedAt?: Date | null;

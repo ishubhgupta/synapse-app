@@ -42,7 +42,8 @@ model Bookmark {
   metadata Json?
 
   // Organization
-  tags String[]
+  tags     String[]
+  category String? // 'work' | 'personal' | 'research' | 'inspiration' | 'shopping' | 'entertainment' | 'learning'
 
   // Timestamps
   createdAt   DateTime  @default(now())
@@ -51,5 +52,6 @@ model Bookmark {
 
   @@index([userId, createdAt])
   @@index([userId, contentType])
+  @@index([userId, category])
   @@map("bookmarks")
 }

@@ -1,48 +1,84 @@
 // Content script for Synapse extension
-// This runs on every page and listens for clipboard events
+// Extracts page content and context
 
-// Listen for keyboard shortcut (Ctrl+Shift+X) to save selection
-document.addEventListener('keydown', async (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'X') {
-    e.preventDefault();
-    
-    const selection = window.getSelection().toString().trim();
-    
-    if (selection) {
-      // Send message to background script to save
-      chrome.runtime.sendMessage({
-        action: 'saveSelection',
-        data: {
-          title: selection.substring(0, 100),
-          rawContent: selection,
-          url: window.location.href,
-          tags: ['selection', 'highlight'],
-        },
-      });
+// Extract page context (surrounding content around selection)
+function getPageContext(selection = '') {
+  const context = {
+    title: document.title,
+    url: window.location.href,
+    description: '',
+    mainContent: '',
+    selectedText: selection,
+    surroundingText: '',
+  };
+
+  // Get meta description
+  const metaDesc = document.querySelector('meta[name="description"]');
+  if (metaDesc) {
+    context.description = metaDesc.getAttribute('content') || '';
+  }
+
+  // Get main content
+  const article = document.querySelector('article');
+  const main = document.querySelector('main');
+  const contentEl = article || main || document.body;
+  
+  if (contentEl) {
+    context.mainContent = contentEl.innerText.substring(0, 3000);
+  }
+
+  // If there's a selection, get surrounding text for context
+  if (selection) {
+    const selObj = window.getSelection();
+    if (selObj.rangeCount > 0) {
+      const range = selObj.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const parentElement = container.nodeType === 3 ? container.parentElement : container;
+      
+      if (parentElement) {
+        const fullText = parentElement.innerText || parentElement.textContent || '';
+        const selectionIndex = fullText.indexOf(selection);
+        
+        if (selectionIndex !== -1) {
+          // Get 200 chars before and after
+          const start = Math.max(0, selectionIndex - 200);
+          const end = Math.min(fullText.length, selectionIndex + selection.length + 200);
+          context.surroundingText = fullText.substring(start, end);
+        }
+      }
     }
   }
-});
+
+  return context;
+}
+
+// Log that content script is loaded
+console.log('Synapse content script loaded');
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getSelection') {
-    const selection = window.getSelection().toString();
-    sendResponse({ selection });
-  }
+  console.log('Content script received message:', request.action);
   
-  if (request.action === 'getPageContent') {
-    // Extract main content
-    const article = document.querySelector('article');
-    const main = document.querySelector('main');
-    const content = article || main || document.body;
+  try {
+    if (request.action === 'getSelection') {
+      const selection = window.getSelection().toString();
+      const context = getPageContext(selection);
+      sendResponse({ text: selection, context });
+      return true;
+    }
     
-    const text = content.innerText;
-    const metaDesc = document.querySelector('meta[name="description"]');
-    const description = metaDesc ? metaDesc.getAttribute('content') : '';
-    
-    sendResponse({
-      content: (description + '\n\n' + text).substring(0, 5000),
-    });
+    if (request.action === 'getPageContent') {
+      const context = getPageContext();
+      sendResponse({
+        content: context.mainContent,
+        description: context.description,
+        context,
+      });
+      return true;
+    }
+  } catch (error) {
+    console.error('Error in content script:', error);
+    sendResponse({ error: error.message });
   }
   
   return true;

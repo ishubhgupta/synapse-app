@@ -19,27 +19,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function checkAuth() {
-  // Check if user is authenticated by calling /api/auth/me
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-      credentials: 'include', // Important: send cookies
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      currentUser = data.user;
-      authToken = true; // Just a flag
-      await chrome.storage.local.set({ authenticated: true });
-    } else {
-      authToken = null;
-      currentUser = null;
-      await chrome.storage.local.remove('authenticated');
-    }
-  } catch (error) {
-    console.error('Auth check failed:', error);
-    authToken = null;
-    currentUser = null;
+  // Get stored token
+  const result = await chrome.storage.local.get(['authToken', 'user']);
+  
+  if (result.authToken && result.user) {
+    authToken = result.authToken;
+    currentUser = result.user;
+    return;
   }
+  
+  authToken = null;
+  currentUser = null;
 }
 
 function render() {
@@ -131,27 +121,36 @@ function attachMainEventListeners() {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tab = tabs[0];
 
+      // Skip chrome:// and edge:// URLs
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+        showMessage('error', 'Cannot save browser internal pages');
+        btn.style.opacity = '1';
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/bookmarks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
-        credentials: 'include', // Send cookies
         body: JSON.stringify({
-          title: tab.title,
-          url: tab.url,
+          title: tab.title || 'Untitled Page',
+          url: tab.url || '',
         }),
       });
 
       if (response.ok) {
-        showMessage('success', 'Bookmark saved successfully!');
+        showMessage('success', '✨ Bookmark saved successfully!');
         setTimeout(() => loadRecentBookmarks(), 500);
       } else {
         const error = await response.json();
         showMessage('error', error.error || 'Failed to save bookmark');
+        console.error('Save error:', error);
       }
     } catch (error) {
-      showMessage('error', 'Failed to save bookmark');
+      console.error('Failed to save bookmark:', error);
+      showMessage('error', 'Failed to save: ' + error.message);
     } finally {
       btn.style.opacity = '1';
     }
@@ -162,20 +161,11 @@ function attachMainEventListeners() {
   });
 
   document.getElementById('logout')?.addEventListener('click', async () => {
-    try {
-      // Call logout API
-      await fetch(`${API_BASE_URL}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-    
-    await chrome.storage.local.remove('authenticated');
+    // Clear stored auth data
+    await chrome.storage.local.remove(['authToken', 'user', 'authenticated']);
     authToken = null;
     currentUser = null;
-    render();
+    window.location.href = 'login.html';
   });
 }
 
@@ -184,8 +174,13 @@ async function loadRecentBookmarks() {
   if (!listEl) return;
 
   try {
+    const result = await chrome.storage.local.get(['authToken']);
+    const token = result.authToken;
+    
     const response = await fetch(`${API_BASE_URL}/api/bookmarks?limit=5`, {
-      credentials: 'include', // Send cookies
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
 
     if (!response.ok) throw new Error('Failed to fetch');
