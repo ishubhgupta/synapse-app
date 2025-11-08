@@ -1,0 +1,55 @@
+// Prisma schema for Synapse Core MVP
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bookmarks Bookmark[]
+
+  @@map("users")
+}
+
+model Bookmark {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Core fields
+  title       String
+  url         String?
+  contentType String // 'video' | 'product' | 'article' | 'tweet' | 'note' | 'image'
+
+  // Content
+  rawContent String? @db.Text
+
+  // Media
+  thumbnail String?
+  favicon   String?
+
+  // Metadata (flexible JSON for type-specific data)
+  metadata Json?
+
+  // Organization
+  tags String[]
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  extractedAt DateTime?
+
+  @@index([userId, createdAt])
+  @@index([userId, contentType])
+  @@map("bookmarks")
+}
