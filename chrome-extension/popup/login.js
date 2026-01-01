@@ -1,7 +1,5 @@
-// Configuration - Automatically detect environment
-const API_BASE_URL = chrome.runtime.getManifest().version.includes('dev') 
-  ? 'http://localhost:3000'
-  : 'https://synapse-bookmark.vercel.app';
+// Configuration - Production first
+const API_BASE_URL = 'https://synapse-bookmark.vercel.app';
 
 // DOM elements
 const loginForm = document.getElementById('loginForm');

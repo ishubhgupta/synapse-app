@@ -1,9 +1,7 @@
 // Synapse Extension Popup
 
-// Configuration - Automatically detect environment
-const API_BASE_URL = chrome.runtime.getManifest().version.includes('dev') 
-  ? 'http://localhost:3000'
-  : 'https://synapse-bookmark.vercel.app';
+// Configuration - Production first
+const API_BASE_URL = 'https://synapse-bookmark.vercel.app';
 
 let currentUser = null;
 let authToken = null;

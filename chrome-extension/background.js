@@ -1,17 +1,37 @@
 // Synapse Chrome Extension - Background Service Worker
 
-// Configuration - Automatically detect environment
-const API_BASE_URL = chrome.runtime.getManifest().version.includes('dev') 
-  ? 'http://localhost:3000'
-  : 'https://synapse-bookmark.vercel.app';
-
-// Fallback: Try production first, then local
+// Configuration - Production first, then local fallback
 const API_ENDPOINTS = [
-  'https://synapse-bookmark.vercel.app',
-  'http://localhost:3000'
+  'https://synapse-bookmark.vercel.app',  // Production (primary)
+  'http://localhost:3000'                 // Local fallback
 ];
 
-let ACTIVE_API_BASE_URL = API_BASE_URL;
+let ACTIVE_API_BASE_URL = API_ENDPOINTS[0];
+
+// Test which endpoint is available
+async function detectAvailableEndpoint() {
+  for (const endpoint of API_ENDPOINTS) {
+    try {
+      const response = await fetch(`${endpoint}/api/auth/me`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      // If we get any response (even 401), the server is alive
+      if (response) {
+        console.log('✅ API endpoint available:', endpoint);
+        ACTIVE_API_BASE_URL = endpoint;
+        return endpoint;
+      }
+    } catch (error) {
+      console.log('❌ Endpoint unavailable:', endpoint);
+    }
+  }
+  console.warn('⚠️ No API endpoint available, using:', ACTIVE_API_BASE_URL);
+  return ACTIVE_API_BASE_URL;
+}
+
+// Detect endpoint on startup
+detectAvailableEndpoint();
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(() => {
@@ -89,64 +109,81 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // Handle keyboard commands
 chrome.commands.onCommand.addListener(async (command) => {
-  console.log('Command received:', command);
+  console.log('🎹 Keyboard command received:', command);
   
   const isAuthenticated = await checkAuth();
-  console.log('Is authenticated:', isAuthenticated);
+  console.log('🔐 Authentication status:', isAuthenticated);
 
   if (!isAuthenticated) {
+    console.log('❌ Not authenticated, showing notification');
     showNotification('Authentication Required', 'Please log in to Synapse first', 'error');
+    chrome.action.openPopup();
     return;
   }
 
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = tabs[0];
-    console.log('Active tab:', tab.url);
+    
+    if (!tab) {
+      console.error('❌ No active tab found');
+      showNotification('Error', 'No active tab found', 'error');
+      return;
+    }
+    
+    console.log('📄 Active tab:', { url: tab.url, title: tab.title });
 
     if (command === 'save-bookmark') {
-      console.log('Saving current page...');
+      console.log('💾 Executing save-bookmark command');
       // Show instant notification FIRST
       showNotification('Saving...', 'Adding bookmark to Synapse', 'info');
-      console.log('Notification should be shown now');
-      // Save in background
-      saveCurrentPage(tab).catch(error => {
-        console.error('Failed to save:', error);
+      console.log('📢 Notification shown, now calling saveCurrentPage');
+      
+      // Save in background with proper error handling
+      try {
+        await saveCurrentPage(tab);
+        console.log('✅ Save completed successfully');
+      } catch (error) {
+        console.error('❌ Save failed:', error);
         showNotification('Failed', error.message || 'Could not save bookmark', 'error');
-      });
+      }
     } else if (command === 'save-selection') {
+      console.log('📝 Executing save-selection command');
       // Get selected text with context from content script
       try {
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'getSelection' });
+        console.log('📥 Selection response:', response);
+        
         if (response && response.text) {
           showNotification('Saving Selection...', 'Adding to Synapse', 'info');
-          saveSelectionWithContext(response.text, response.context, tab).catch(error => {
-            showNotification('Failed', error.message || 'Could not save selection', 'error');
-          });
+          await saveSelectionWithContext(response.text, response.context, tab);
         } else {
           showNotification('No Selection', 'Please select some text first', 'error');
         }
       } catch (error) {
+        console.error('❌ Selection save failed:', error);
         showNotification('Error', 'Could not access page content', 'error');
       }
     } else if (command === 'save-clipboard') {
+      console.log('📋 Executing save-clipboard command');
       // Read clipboard and save
       try {
         const clipboardText = await navigator.clipboard.readText();
+        console.log('📥 Clipboard content length:', clipboardText?.length || 0);
+        
         if (clipboardText) {
           showNotification('Saving Clipboard...', 'Adding to Synapse', 'info');
-          saveClipboardContent(clipboardText, tab).catch(error => {
-            showNotification('Failed', error.message || 'Could not save clipboard', 'error');
-          });
+          await saveClipboardContent(clipboardText, tab);
         } else {
           showNotification('Empty Clipboard', 'Clipboard is empty', 'error');
         }
       } catch (clipError) {
+        console.error('❌ Clipboard read failed:', clipError);
         showNotification('Error', 'Cannot read clipboard', 'error');
       }
     }
   } catch (error) {
-    console.error('Error handling command:', error);
+    console.error('❌ Command handler error:', error);
     showNotification('Error', 'Failed to save bookmark', 'error');
   }
 });
@@ -390,36 +427,81 @@ async function saveImageWithContext(imageUrl, tab) {
 }
 
 async function saveBookmark(bookmark) {
-  console.log('saveBookmark called with:', bookmark);
+  console.log('💾 saveBookmark called with:', { 
+    title: bookmark.title, 
+    url: bookmark.url,
+    hasRawContent: !!bookmark.rawContent,
+    contentLength: bookmark.rawContent?.length || 0
+  });
   
   // Get auth token
   const result = await chrome.storage.local.get(['authToken']);
   const token = result.authToken;
 
   if (!token) {
-    console.error('No auth token found');
+    console.error('❌ No auth token found in storage');
     throw new Error('Not authenticated');
   }
 
-  console.log('Sending bookmark to API...');
-  const response = await fetch(`${API_BASE_URL}/api/bookmarks`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify(bookmark),
-  });
+  console.log('🔑 Auth token found, length:', token.length);
+  
+  // Try each endpoint until one works
+  for (let i = 0; i < API_ENDPOINTS.length; i++) {
+    const endpoint = i === 0 ? ACTIVE_API_BASE_URL : API_ENDPOINTS[i];
+    const apiUrl = `${endpoint}/api/bookmarks`;
+    
+    console.log(`🌐 Attempt ${i + 1}: Trying ${apiUrl}`);
+    
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(bookmark),
+      });
 
-  if (!response.ok) {
-    const error = await response.json();
-    console.error('API error:', error);
-    throw new Error(error.error || 'Failed to save bookmark');
+      console.log('📡 Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('❌ API error:', error);
+        
+        // If auth error, don't try other endpoints
+        if (response.status === 401) {
+          throw new Error('Invalid token or authentication expired');
+        }
+        
+        // Try next endpoint
+        if (i < API_ENDPOINTS.length - 1) {
+          console.log('🔄 Trying next endpoint...');
+          continue;
+        }
+        
+        throw new Error(error.error || 'Failed to save bookmark');
+      }
+
+      const data = await response.json();
+      console.log('✅ Bookmark saved successfully:', data);
+      
+      // Update active endpoint for future requests
+      ACTIVE_API_BASE_URL = endpoint;
+      
+      showNotification('Saved!', 'Bookmark saved successfully ✨', 'success');
+      return data;
+    } catch (fetchError) {
+      console.error(`❌ Fetch error on ${endpoint}:`, fetchError.message);
+      
+      // If this was the last endpoint, throw the error
+      if (i === API_ENDPOINTS.length - 1) {
+        throw new Error(`Cannot connect to Synapse. Please ensure the app is running.\n\nTried:\n- ${API_ENDPOINTS.join('\n- ')}`);
+      }
+      
+      // Otherwise continue to next endpoint
+      console.log('🔄 Trying next endpoint...');
+    }
   }
-
-  console.log('Bookmark saved successfully, showing notification...');
-  showNotification('Saved!', 'Bookmark saved successfully ✨', 'success');
-  return await response.json();
 }
 
 function showNotification(title, message, type = 'info') {
