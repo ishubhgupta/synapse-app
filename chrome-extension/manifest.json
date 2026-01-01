@@ -12,6 +12,7 @@
   ],
   "host_permissions": [
     "http://localhost:3000/*",
+    "https://synapse-bookmark.vercel.app/*",
     "https://*.vercel.app/*"
   ],
   "action": {

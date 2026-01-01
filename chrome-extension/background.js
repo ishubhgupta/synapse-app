@@ -1,7 +1,17 @@
 // Synapse Chrome Extension - Background Service Worker
 
-// Configuration
-const API_BASE_URL = 'http://localhost:3000'; // Change for production
+// Configuration - Automatically detect environment
+const API_BASE_URL = chrome.runtime.getManifest().version.includes('dev') 
+  ? 'http://localhost:3000'
+  : 'https://synapse-bookmark.vercel.app';
+
+// Fallback: Try production first, then local
+const API_ENDPOINTS = [
+  'https://synapse-bookmark.vercel.app',
+  'http://localhost:3000'
+];
+
+let ACTIVE_API_BASE_URL = API_BASE_URL;
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(() => {

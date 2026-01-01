@@ -58,25 +58,33 @@ The extension needs to connect to your Synapse account:
 
 ## Configuration
 
-### Change API URL for Production
+### Environment Auto-Detection
 
-Edit `background.js` and `popup/popup.js`:
+The extension automatically detects whether to use local or production environment:
 
-```javascript
-const API_BASE_URL = 'https://your-app.vercel.app'; // Change this
-```
+- **Development**: Uses `http://localhost:3000` (when version contains 'dev')
+- **Production**: Uses `https://synapse-bookmark.vercel.app` (default)
 
-### Update Manifest for Production
+No manual configuration needed! The extension will work with both environments automatically.
 
-Edit `manifest.json`:
+### Manual Override (if needed)
+
+If you need to force a specific environment, edit the version in `manifest.json`:
 
 ```json
 {
-  "host_permissions": [
-    "https://your-app.vercel.app/*"
-  ]
+  "version": "1.0.0-dev"  // Use local (dev environment)
+  // OR
+  "version": "1.0.0"      // Use production
 }
 ```
+
+### Supported URLs
+
+The extension has permissions for:
+- `http://localhost:3000/*` (local development)
+- `https://synapse-bookmark.vercel.app/*` (production)
+- `https://*.vercel.app/*` (any Vercel deployment)
 
 ## Icons
 
